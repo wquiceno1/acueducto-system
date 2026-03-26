@@ -1,7 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+
+const NAV_LINKS = [
+  { href: "/dashboard", label: "Consumos" },
+  { href: "/dashboard/suscriptores", label: "Usuarios" },
+  { href: "/dashboard/medidores", label: "Medidores" },
+];
 
 export default function DashboardLayout({
   children,
@@ -9,6 +16,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -41,7 +49,35 @@ export default function DashboardLayout({
           Cerrar sesión
         </button>
       </header>
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">{children}</main>
+
+      {/* Barra de navegación */}
+      <nav className="bg-white border-b border-gray-100 px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto flex gap-1">
+          {NAV_LINKS.map((link) => {
+            const isActive =
+              link.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname.startsWith(link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  isActive
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {children}
+      </main>
     </div>
   );
 }
