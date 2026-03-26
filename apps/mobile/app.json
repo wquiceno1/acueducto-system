@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "Acueducto",
+    "slug": "acueducto",
+    "scheme": "acueducto",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -25,6 +26,8 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "platforms": ["ios", "android"],
+    "plugins": ["expo-router"]
   }
 }
