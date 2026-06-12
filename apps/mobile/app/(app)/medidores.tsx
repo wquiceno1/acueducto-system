@@ -9,11 +9,12 @@ import {
   TextInput,
 } from "react-native";
 import { router } from "expo-router";
-import { getMedidores } from "../../lib/database";
+import { getMedidores, getMedidoresConLecturaDelMes } from "../../lib/database";
 
 export default function MedidoresScreen() {
   const [medidores, setMedidores] = useState<any[]>([]);
   const [filtered, setFiltered] = useState<any[]>([]);
+  const [conLectura, setConLectura] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -21,6 +22,7 @@ export default function MedidoresScreen() {
     const data = getMedidores();
     setMedidores(data);
     setFiltered(data);
+    setConLectura(getMedidoresConLecturaDelMes());
   }
 
   useEffect(() => {
@@ -50,19 +52,20 @@ export default function MedidoresScreen() {
   }, []);
 
   function renderItem({ item }: { item: any }) {
+    const tieneLectura = conLectura.has(item.id);
     return (
       <TouchableOpacity
         style={styles.card}
         onPress={() => router.push(`/(app)/lectura/${item.id}`)}
       >
         <View style={styles.cardHeader}>
-          <Text style={styles.serial}>#{item.numero_serie}</Text>
-          {item.sector && <Text style={styles.sector}>{item.sector}</Text>}
+          <Text style={styles.name}>
+            {item.suscriptor_apellido}, {item.suscriptor_nombre}
+          </Text>
+          <View style={[styles.badge, tieneLectura ? styles.badgeOk : styles.badgePending]}>
+            <Text style={styles.badgeText}>{tieneLectura ? "✓ Leído" : "Pendiente"}</Text>
+          </View>
         </View>
-        <Text style={styles.name}>
-          {item.suscriptor_apellido}, {item.suscriptor_nombre}
-        </Text>
-        <Text style={styles.address}>{item.suscriptor_direccion}</Text>
       </TouchableOpacity>
     );
   }
@@ -121,11 +124,12 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  serial: { fontWeight: "700", fontSize: 15, color: "#1a73e8" },
-  sector: { fontSize: 12, color: "#fff", backgroundColor: "#1a73e8", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
-  name: { fontSize: 15, fontWeight: "600", color: "#333" },
-  address: { fontSize: 13, color: "#666", marginTop: 2 },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  name: { fontSize: 15, fontWeight: "600", color: "#333", flex: 1, marginRight: 8 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  badgeOk: { backgroundColor: "#d1fae5" },
+  badgePending: { backgroundColor: "#fef3c7" },
+  badgeText: { fontSize: 12, fontWeight: "600", color: "#333" },
   empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 40 },
   emptyText: { textAlign: "center", color: "#999", fontSize: 15 },
 });

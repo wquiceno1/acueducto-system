@@ -1,5 +1,5 @@
 import * as SQLite from "expo-sqlite";
-import { Lectura, Medidor } from "@acueducto/types";
+import { Lectura } from "@acueducto/types";
 
 const db = SQLite.openDatabaseSync("acueducto.db");
 
@@ -79,8 +79,62 @@ export function saveLecturaLocally(lectura: Omit<Lectura, "consumo">) {
   );
 }
 
+export function getUltimaLectura(medidorId: string): number | null {
+  const row = db.getFirstSync(
+    "SELECT lectura_actual FROM lecturas WHERE medidor_id = ? ORDER BY fecha_lectura DESC, created_at DESC LIMIT 1",
+    [medidorId]
+  ) as { lectura_actual: number } | null;
+  return row ? row.lectura_actual : null;
+}
+
+export function clearLecturasSincronizadas() {
+  db.runSync("DELETE FROM lecturas WHERE sync_status = 'sincronizado'");
+}
+
+export function saveLecturasHistorial(lecturas: any[]) {
+  db.withTransactionSync(() => {
+    for (const l of lecturas) {
+      db.runSync(
+        `INSERT OR IGNORE INTO lecturas
+         (id, medidor_id, operario_id, lectura_anterior, lectura_actual, consumo, fecha_lectura, foto_url, notas, sync_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'sincronizado', ?)`,
+        [
+          l.id,
+          l.medidor_id,
+          l.operario_id,
+          l.lectura_anterior,
+          l.lectura_actual,
+          l.consumo,
+          l.fecha_lectura,
+          l.foto_url ?? null,
+          l.notas ?? null,
+          l.created_at,
+        ]
+      );
+    }
+  });
+}
+
+export function getHistorialLecturas(medidorId: string, limite = 6): any[] {
+  return db.getAllSync(
+    "SELECT fecha_lectura, lectura_anterior, lectura_actual, consumo FROM lecturas WHERE medidor_id = ? ORDER BY fecha_lectura DESC LIMIT ?",
+    [medidorId, limite]
+  );
+}
+
 export function getPendingLecturas(): any[] {
   return db.getAllSync("SELECT * FROM lecturas WHERE sync_status = 'pendiente'");
+}
+
+export function getMedidoresConLecturaDelMes(): Set<string> {
+  const now = new Date();
+  const desde = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const hasta = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+  const rows = db.getAllSync(
+    "SELECT DISTINCT medidor_id FROM lecturas WHERE fecha_lectura >= ? AND fecha_lectura <= ?",
+    [desde, hasta]
+  ) as { medidor_id: string }[];
+  return new Set(rows.map((r) => r.medidor_id));
 }
 
 export function markLecturaAsSynced(id: string) {

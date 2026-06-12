@@ -13,7 +13,7 @@ import { useLocalSearchParams, router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import NetInfo from "@react-native-community/netinfo";
 import { supabase } from "../../../lib/supabase";
-import { saveLecturaLocally, getMedidores } from "../../../lib/database";
+import { saveLecturaLocally, getMedidores, getUltimaLectura, getHistorialLecturas } from "../../../lib/database";
 import { syncNow } from "../../../hooks/useSync";
 import "react-native-get-random-values";
 import { randomUUID } from "expo-crypto";
@@ -21,16 +21,20 @@ import { randomUUID } from "expo-crypto";
 export default function LecturaScreen() {
   const { medidorId } = useLocalSearchParams<{ medidorId: string }>();
   const [medidor, setMedidor] = useState<any>(null);
-  const [lecturaAnterior, setLecturaAnterior] = useState("");
+  const [lecturaAnterior, setLecturaAnterior] = useState<number | null>(null);
   const [lecturaActual, setLecturaActual] = useState("");
   const [notas, setNotas] = useState("");
   const [foto, setFoto] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [historialVisible, setHistorialVisible] = useState(false);
+  const [historial, setHistorial] = useState<any[]>([]);
 
   useEffect(() => {
     const medidores = getMedidores();
     const found = medidores.find((m) => m.id === medidorId);
     setMedidor(found ?? null);
+    setLecturaAnterior(getUltimaLectura(medidorId));
+    setHistorial(getHistorialLecturas(medidorId));
   }, [medidorId]);
 
   async function pickImage() {
@@ -42,16 +46,12 @@ export default function LecturaScreen() {
   }
 
   async function handleSave() {
-    if (!lecturaAnterior || !lecturaActual) {
-      Alert.alert("Error", "Ingresá la lectura anterior y actual");
+    if (!lecturaActual) {
+      Alert.alert("Error", "Ingresá la lectura actual");
       return;
     }
-    const anterior = parseFloat(lecturaAnterior);
+    const anterior = lecturaAnterior ?? 0;
     const actual = parseFloat(lecturaActual);
-    if (actual < anterior) {
-      Alert.alert("Error", "La lectura actual no puede ser menor que la anterior");
-      return;
-    }
 
     setSaving(true);
     const { data: { session } } = await supabase.auth.getSession();
@@ -85,10 +85,11 @@ export default function LecturaScreen() {
     ]);
   }
 
-  const consumo =
-    lecturaActual && lecturaAnterior
-      ? Math.max(0, parseFloat(lecturaActual) - parseFloat(lecturaAnterior))
-      : null;
+  const actualNum = lecturaActual ? parseFloat(lecturaActual) : null;
+  const lecturaInvalida = actualNum !== null && actualNum < (lecturaAnterior ?? 0);
+  const consumo = actualNum !== null && !lecturaInvalida
+    ? actualNum - (lecturaAnterior ?? 0)
+    : null;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -103,24 +104,24 @@ export default function LecturaScreen() {
       )}
 
       <Text style={styles.label}>Lectura anterior (m³)</Text>
-      <TextInput
-        style={styles.input}
-        value={lecturaAnterior}
-        onChangeText={setLecturaAnterior}
-        keyboardType="decimal-pad"
-        placeholder="0.00"
-        placeholderTextColor="#999"
-      />
+      <View style={styles.inputReadonly}>
+        <Text style={styles.inputReadonlyText}>
+          {lecturaAnterior !== null ? lecturaAnterior.toString() : "Sin registros previos"}
+        </Text>
+      </View>
 
       <Text style={styles.label}>Lectura actual (m³)</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, lecturaInvalida && styles.inputError]}
         value={lecturaActual}
         onChangeText={setLecturaActual}
         keyboardType="decimal-pad"
         placeholder="0.00"
         placeholderTextColor="#999"
       />
+      {lecturaInvalida && (
+        <Text style={styles.errorText}>Valor menor a la lectura anterior</Text>
+      )}
 
       {consumo !== null && (
         <View style={styles.consumoBox}>
@@ -150,9 +151,34 @@ export default function LecturaScreen() {
       />
 
       <TouchableOpacity
-        style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+        style={styles.historialToggle}
+        onPress={() => setHistorialVisible(!historialVisible)}
+      >
+        <Text style={styles.historialToggleText}>
+          {historialVisible ? "▲ Ocultar historial" : "▼ Ver historial de consumos"}
+        </Text>
+      </TouchableOpacity>
+
+      {historialVisible && (
+        <View style={styles.historialContainer}>
+          {historial.length === 0 ? (
+            <Text style={styles.historialVacio}>Sin registros anteriores.</Text>
+          ) : (
+            historial.map((h, i) => (
+              <View key={i} style={styles.historialFila}>
+                <Text style={styles.historialFecha}>{h.fecha_lectura}</Text>
+                <Text style={styles.historialDato}>{h.lectura_anterior} → {h.lectura_actual}</Text>
+                <Text style={styles.historialConsumo}>{h.consumo} m³</Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[styles.saveButton, (saving || lecturaInvalida || !lecturaActual) && styles.saveButtonDisabled]}
         onPress={handleSave}
-        disabled={saving}
+        disabled={saving || lecturaInvalida || !lecturaActual}
       >
         <Text style={styles.saveButtonText}>
           {saving ? "Guardando..." : "Guardar lectura"}
@@ -184,6 +210,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
   },
+  inputError: { borderColor: "#ef4444" },
+  errorText: { fontSize: 12, color: "#ef4444", marginTop: 4 },
+  inputReadonly: {
+    backgroundColor: "#f0f0f0",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 8,
+    padding: 14,
+  },
+  inputReadonlyText: { fontSize: 16, color: "#888" },
   textarea: { height: 80, textAlignVertical: "top" },
   consumoBox: {
     backgroundColor: "#e8f4fd",
@@ -217,4 +253,31 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  historialToggle: {
+    marginTop: 20,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  historialToggleText: { color: "#1a73e8", fontSize: 14, fontWeight: "600" },
+  historialContainer: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 8,
+    overflow: "hidden",
+    marginTop: 4,
+  },
+  historialFila: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  historialFecha: { fontSize: 13, color: "#666", flex: 1 },
+  historialDato: { fontSize: 13, color: "#444", flex: 1, textAlign: "center" },
+  historialConsumo: { fontSize: 13, fontWeight: "700", color: "#1a73e8", flex: 1, textAlign: "right" },
+  historialVacio: { padding: 14, color: "#999", fontSize: 13, textAlign: "center" },
 });
