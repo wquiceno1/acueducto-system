@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
+import { getMyRole, routeForRole } from "../lib/auth";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -24,12 +25,22 @@ export default function LoginScreen() {
     }
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
     if (error) {
+      setLoading(false);
       Alert.alert("Error", error.message);
       return;
     }
-    router.replace("/(app)/medidores");
+
+    // Enrutar según el rol: operario -> medidores; tesorera/super_admin -> su zona.
+    const role = await getMyRole();
+    const dest = routeForRole(role);
+    setLoading(false);
+    if (!dest) {
+      await supabase.auth.signOut();
+      Alert.alert("Sin acceso", "Tu usuario no tiene una sección asignada en la app.");
+      return;
+    }
+    router.replace(dest);
   }
 
   return (
