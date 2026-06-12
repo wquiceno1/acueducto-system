@@ -17,19 +17,66 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [checking, setChecking] = useState(true);
+  // El dashboard web es solo para super_admin. Los demás roles (admin/operario)
+  // usan la app móvil. La barrera real es RLS; esto es el guard de UX.
+  const [status, setStatus] = useState<"checking" | "ok" | "denied">("checking");
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let active = true;
+    async function check() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push("/login");
+        return;
+      }
+      const { data } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+      if (!active) return;
+      setStatus(data?.role === "super_admin" ? "ok" : "denied");
+    }
+    check();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.push("/login");
-      else setChecking(false);
     });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, [router]);
 
-  if (checking)
+  if (status === "checking")
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-gray-400">Cargando...</p>
+      </div>
+    );
+
+  if (status === "denied")
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="text-center max-w-sm">
+          <h1 className="text-lg font-bold text-gray-800 mb-2">
+            Acceso restringido
+          </h1>
+          <p className="text-sm text-gray-500 mb-6">
+            El panel web es solo para el administrador del sistema. Si sos la
+            tesorera, gestioná todo desde la app móvil.
+          </p>
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              router.push("/login");
+            }}
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium min-h-[44px] px-4"
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </div>
     );
 
