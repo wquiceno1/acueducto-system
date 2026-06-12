@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { calcularCobro, formatCOP } from "@/lib/tarifas";
-import type { Lectura, Medidor, Suscriptor } from "@acueducto/types";
+import { calcularCobro, formatCOP } from "@acueducto/cobros";
+import type { Lectura, Medidor, Suscriptor, Tarifa } from "@acueducto/types";
 
 type LecturaConDetalle = Lectura & {
   medidor: Medidor & { suscriptor: Suscriptor };
@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [medidoresSinLectura, setMedidoresSinLectura] = useState<
     (Medidor & { suscriptor: Suscriptor })[]
   >([]);
+  const [tarifa, setTarifa] = useState<Tarifa | null>(null);
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(() => {
     const now = new Date();
@@ -65,6 +66,16 @@ export default function DashboardPage() {
       .select("*, suscriptor:suscriptores(*)")
       .eq("activo", true);
 
+    // Tarifa vigente de la organizacion del usuario. RLS filtra por org (get_my_org),
+    // asi que no hace falta pasar organizacion_id: solo se devuelve la de su comunidad.
+    const { data: tarifaData } = await supabase
+      .from("tarifas")
+      .select("*")
+      .order("vigente_desde", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setTarifa((tarifaData as Tarifa | null) ?? null);
+
     const lecturasArr = (lecturasData ?? []) as LecturaConDetalle[];
     setLecturas(lecturasArr);
 
@@ -77,30 +88,33 @@ export default function DashboardPage() {
     setLoading(false);
   }
 
-  // Agrupar lecturas por suscriptor
+  // Agrupar lecturas por suscriptor. Sin tarifa cargada no se puede calcular el
+  // cobro, asi que el resumen queda vacio hasta que llegue (ver guard `tarifa`).
   const mapaS = new Map<string, ResumenSuscriptor>();
-  for (const l of lecturas) {
-    const sid = l.medidor.suscriptor_id;
-    if (!mapaS.has(sid)) {
-      mapaS.set(sid, {
-        suscriptor_id: sid,
-        nombre: l.medidor.suscriptor.nombre,
-        apellido: l.medidor.suscriptor.apellido,
-        medidores: [],
-        totalMes: 0,
+  if (tarifa) {
+    for (const l of lecturas) {
+      const sid = l.medidor.suscriptor_id;
+      if (!mapaS.has(sid)) {
+        mapaS.set(sid, {
+          suscriptor_id: sid,
+          nombre: l.medidor.suscriptor.nombre,
+          apellido: l.medidor.suscriptor.apellido,
+          medidores: [],
+          totalMes: 0,
+        });
+      }
+      const cobro = calcularCobro(l.consumo, tarifa);
+      const entry = mapaS.get(sid)!;
+      entry.medidores.push({
+        numero_serie: l.medidor.numero_serie,
+        consumo: l.consumo,
+        lectura_anterior: l.lectura_anterior,
+        lectura_actual: l.lectura_actual,
+        fecha_lectura: l.fecha_lectura,
+        ...cobro,
       });
+      entry.totalMes += cobro.total;
     }
-    const cobro = calcularCobro(l.consumo);
-    const entry = mapaS.get(sid)!;
-    entry.medidores.push({
-      numero_serie: l.medidor.numero_serie,
-      consumo: l.consumo,
-      lectura_anterior: l.lectura_anterior,
-      lectura_actual: l.lectura_actual,
-      fecha_lectura: l.fecha_lectura,
-      ...cobro,
-    });
-    entry.totalMes += cobro.total;
   }
 
   const resumenPorSuscriptor: ResumenSuscriptor[] = [];
