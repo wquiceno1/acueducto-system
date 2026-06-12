@@ -27,7 +27,13 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "platforms": ["ios", "android"],
-    "plugins": ["expo-router"]
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "plugins": [
+      "expo-router",
+      "expo-sqlite"
+    ]
   }
 }
