@@ -33,6 +33,32 @@ export interface Tarifa {
   created_at: string;
 }
 
+// --- Cobranza (cuenta corriente) ---
+export type MetodoPago = "efectivo" | "transferencia" | "otro";
+
+// Cargo: snapshot congelado de lo que debe un suscriptor en un mes.
+export interface Cargo {
+  id: string;
+  organizacion_id: string;
+  suscriptor_id: string;
+  periodo: string; // primer día del mes (AAAA-MM-DD)
+  monto: number;
+  consumo_total?: number;
+  generado_at: string;
+}
+
+// Pago: abono del suscriptor, aplicado a cuenta (al saldo).
+export interface Pago {
+  id: string;
+  organizacion_id: string;
+  suscriptor_id: string;
+  monto: number;
+  fecha_pago: string;
+  metodo: MetodoPago;
+  notas?: string;
+  created_at: string;
+}
+
 // Suscriptor (vecino con medidor)
 export interface Suscriptor {
   id: string;

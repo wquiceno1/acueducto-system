@@ -1,8 +1,30 @@
 import { Tabs, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Text } from "react-native";
+import { Text, TouchableOpacity, Alert } from "react-native";
 import { supabase } from "../../lib/supabase";
 import { getMyRole } from "../../lib/auth";
+
+// Botón de cerrar sesión (en el header de Resumen).
+function BotonSalir() {
+  function confirmar() {
+    Alert.alert("Cerrar sesión", "¿Querés salir de tu cuenta?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Salir",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.auth.signOut();
+          router.replace("/");
+        },
+      },
+    ]);
+  }
+  return (
+    <TouchableOpacity onPress={confirmar} style={{ paddingHorizontal: 16 }}>
+      <Text style={{ color: "#1a73e8", fontSize: 14, fontWeight: "500" }}>Salir</Text>
+    </TouchableOpacity>
+  );
+}
 
 // Zona de la tesorera (rol admin) y del super_admin. Guard de rol: si entra un
 // usuario que no corresponde (deep link, sesión vieja), lo manda al login.
@@ -41,7 +63,15 @@ export default function TesoreraLayout() {
     <Tabs screenOptions={{ tabBarActiveTintColor: "#1a73e8" }}>
       <Tabs.Screen
         name="resumen"
-        options={{ title: "Resumen", tabBarIcon: () => <Text>📊</Text> }}
+        options={{
+          title: "Resumen",
+          tabBarIcon: () => <Text>📊</Text>,
+          headerRight: () => <BotonSalir />,
+        }}
+      />
+      <Tabs.Screen
+        name="cobranza"
+        options={{ title: "Cobranza", tabBarIcon: () => <Text>💰</Text> }}
       />
       <Tabs.Screen
         name="suscriptores"

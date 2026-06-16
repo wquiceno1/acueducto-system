@@ -1,4 +1,4 @@
-import type { Tarifa } from "@acueducto/types";
+import type { Tarifa, Cargo, Pago } from "@acueducto/types";
 
 // Lógica de cobro COMPARTIDA entre web y mobile. Es plata: una sola fuente de
 // verdad para la fórmula, para que el cálculo nunca difiera entre frontends.
@@ -28,4 +28,19 @@ export function formatCOP(value: number): string {
     currency: "COP",
     minimumFractionDigits: 0,
   }).format(value);
+}
+
+// --- Cobranza (cuenta corriente) ---
+// Saldo del suscriptor = Σ cargos − Σ pagos. Positivo = debe; <= 0 = al día.
+export function saldoSuscriptor(
+  cargos: Pick<Cargo, "monto">[],
+  pagos: Pick<Pago, "monto">[]
+): number {
+  const totalCargos = cargos.reduce((s, c) => s + c.monto, 0);
+  const totalPagos = pagos.reduce((s, p) => s + p.monto, 0);
+  return totalCargos - totalPagos;
+}
+
+export function estaAlDia(saldo: number): boolean {
+  return saldo <= 0;
 }
