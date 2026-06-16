@@ -8,7 +8,7 @@ import {
   RefreshControl,
   TextInput,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { getMedidores, getMedidoresConLecturaDelMes } from "../../lib/database";
 
 export default function MedidoresScreen() {
@@ -25,9 +25,13 @@ export default function MedidoresScreen() {
     setConLectura(getMedidoresConLecturaDelMes());
   }
 
-  useEffect(() => {
-    loadMedidores();
-  }, []);
+  // Recargar cada vez que la pantalla vuelve a foco (p. ej. al volver de guardar una
+  // lectura), para que el badge "Leído/Pendiente" refleje el cambio sin pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      loadMedidores();
+    }, [])
+  );
 
   useEffect(() => {
     if (!search) {
