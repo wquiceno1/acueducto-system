@@ -18,6 +18,7 @@ type MedidorConSuscriptor = Medidor & { suscriptor: Suscriptor | null };
 export default function MedidoresListScreen() {
   const [medidores, setMedidores] = useState<MedidorConSuscriptor[]>([]);
   const [search, setSearch] = useState("");
+  const [mostrarInactivos, setMostrarInactivos] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -42,15 +43,19 @@ export default function MedidoresListScreen() {
     load().finally(() => setRefreshing(false));
   }, [load]);
 
+  // Por defecto solo activos; el toggle suma los inactivos.
+  const base = mostrarInactivos ? medidores : medidores.filter((m) => m.activo);
   const q = search.trim().toLowerCase();
   const filtered = q
-    ? medidores.filter(
+    ? base.filter(
         (m) =>
           m.numero_serie.toLowerCase().includes(q) ||
           (m.suscriptor?.apellido ?? "").toLowerCase().includes(q) ||
           (m.suscriptor?.nombre ?? "").toLowerCase().includes(q)
       )
-    : medidores;
+    : base;
+
+  const inactivosCount = medidores.filter((m) => !m.activo).length;
 
   function renderItem({ item }: { item: MedidorConSuscriptor }) {
     return (
@@ -94,6 +99,19 @@ export default function MedidoresListScreen() {
         </TouchableOpacity>
       </View>
 
+      {inactivosCount > 0 && (
+        <TouchableOpacity
+          style={styles.filterToggle}
+          onPress={() => setMostrarInactivos((v) => !v)}
+        >
+          <Text style={styles.filterText}>
+            {mostrarInactivos
+              ? "✓ Mostrando inactivos"
+              : `Ver inactivos (${inactivosCount})`}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {loading ? (
         <ActivityIndicator style={{ marginTop: 32 }} color="#1a73e8" />
       ) : filtered.length === 0 ? (
@@ -119,7 +137,7 @@ export default function MedidoresListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
-  header: { flexDirection: "row", gap: 10, padding: 16, alignItems: "center" },
+  header: { flexDirection: "row", gap: 10, padding: 16, paddingBottom: 8, alignItems: "center" },
   search: {
     flex: 1,
     backgroundColor: "#fff",
@@ -132,6 +150,8 @@ const styles = StyleSheet.create({
   },
   newBtn: { backgroundColor: "#1a73e8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12 },
   newBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  filterToggle: { paddingHorizontal: 16, paddingBottom: 8, alignSelf: "flex-start" },
+  filterText: { fontSize: 13, color: "#1a73e8", fontWeight: "500" },
   list: { paddingHorizontal: 16, paddingBottom: 16 },
   card: {
     backgroundColor: "#fff",

@@ -14,6 +14,8 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { supabase } from "../../../lib/supabase";
+import { toast, mensajeError } from "../../../lib/ui";
+import { DateField } from "../../../components/DateField";
 import type { Medidor, Suscriptor } from "@acueducto/types";
 
 function hoyISO() {
@@ -96,9 +98,10 @@ export default function MedidorFormScreen() {
 
     setSaving(false);
     if (error) {
-      Alert.alert("Error", error.message);
+      Alert.alert("Error", mensajeError(error));
       return;
     }
+    toast("Guardado");
     router.back();
   }, [numeroSerie, suscriptorId, sector, fechaInstalacion, activo, esNuevo, id]);
 
@@ -140,16 +143,11 @@ export default function MedidorFormScreen() {
         />
       </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Fecha de instalación (AAAA-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          value={fechaInstalacion}
-          onChangeText={setFechaInstalacion}
-          placeholder="2026-06-12"
-          placeholderTextColor="#999"
-        />
-      </View>
+      <DateField
+        label="Fecha de instalación"
+        value={fechaInstalacion}
+        onChange={setFechaInstalacion}
+      />
 
       <View style={styles.switchRow}>
         <Text style={styles.label}>Activo</Text>

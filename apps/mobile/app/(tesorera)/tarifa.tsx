@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { DateField } from "../../components/DateField";
 import { formatCOP } from "@acueducto/cobros";
 import type { Tarifa } from "@acueducto/types";
 
@@ -18,8 +19,15 @@ function hoyISO() {
   return new Date().toISOString().split("T")[0];
 }
 
+// Valida formato AAAA-MM-DD y que sea una fecha real.
+function fechaValida(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(s);
+  return !Number.isNaN(d.getTime()) && d.toISOString().split("T")[0] === s;
+}
+
 export default function TarifaScreen() {
-  const [vigente, setVigente] = useState<Tarifa | null>(null);
+  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -27,21 +35,26 @@ export default function TarifaScreen() {
   const [cargoFijo, setCargoFijo] = useState("");
   const [consumoBase, setConsumoBase] = useState("");
   const [precioExcedente, setPrecioExcedente] = useState("");
+  const [vigenteDesde, setVigenteDesde] = useState(hoyISO());
+
+  const vigente = tarifas[0] ?? null;
+  const historico = tarifas.slice(1);
 
   const load = useCallback(async () => {
+    // Se traen TODAS: la más reciente es la vigente, el resto es histórico.
     const { data } = await supabase
       .from("tarifas")
       .select("*")
-      .order("vigente_desde", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const t = (data as Tarifa | null) ?? null;
-    setVigente(t);
-    if (t) {
-      setCargoFijo(String(t.cargo_fijo));
-      setConsumoBase(String(t.consumo_base_m3));
-      setPrecioExcedente(String(t.precio_excedente_m3));
+      .order("vigente_desde", { ascending: false });
+    const lista = (data ?? []) as Tarifa[];
+    setTarifas(lista);
+    const v = lista[0];
+    if (v) {
+      setCargoFijo(String(v.cargo_fijo));
+      setConsumoBase(String(v.consumo_base_m3));
+      setPrecioExcedente(String(v.precio_excedente_m3));
     }
+    setVigenteDesde(hoyISO());
   }, []);
 
   useFocusEffect(
@@ -59,22 +72,34 @@ export default function TarifaScreen() {
       Alert.alert("Datos inválidos", "Los tres valores deben ser números mayores o iguales a 0.");
       return;
     }
+    if (!fechaValida(vigenteDesde)) {
+      Alert.alert("Fecha inválida", "Usá el formato AAAA-MM-DD (por ejemplo, 2026-06-12).");
+      return;
+    }
+    // La nueva tarifa no puede regir antes que la vigente actual (no se reescribe el pasado).
+    if (vigente && vigenteDesde < vigente.vigente_desde) {
+      Alert.alert(
+        "Fecha incoherente",
+        `La tarifa vigente rige desde ${vigente.vigente_desde}. La nueva no puede empezar antes.`
+      );
+      return;
+    }
+
     Alert.alert(
       "Confirmar nueva tarifa",
-      "Se creará una nueva tarifa vigente desde hoy. La anterior se conserva en el histórico. ¿Confirmás?",
+      `Se creará una tarifa vigente desde ${vigenteDesde}. La anterior se conserva en el histórico. ¿Confirmás?`,
       [
         { text: "Cancelar", style: "cancel" },
         {
           text: "Guardar",
           onPress: async () => {
             setSaving(true);
-            // Se INSERTA una nueva fila (no se edita la vieja): preserva el histórico.
-            // organizacion_id lo completa el trigger set_organizacion_id.
+            // INSERT (no UPDATE): preserva el histórico. organizacion_id lo pone el trigger.
             const { error } = await supabase.from("tarifas").insert({
               cargo_fijo: cf,
               consumo_base_m3: cb,
               precio_excedente_m3: pe,
-              vigente_desde: hoyISO(),
+              vigente_desde: vigenteDesde,
             });
             setSaving(false);
             if (error) {
@@ -88,7 +113,7 @@ export default function TarifaScreen() {
         },
       ]
     );
-  }, [cargoFijo, consumoBase, precioExcedente, load]);
+  }, [cargoFijo, consumoBase, precioExcedente, vigenteDesde, vigente, load]);
 
   if (loading) {
     return <ActivityIndicator style={{ flex: 1 }} color="#1a73e8" />;
@@ -115,7 +140,7 @@ export default function TarifaScreen() {
       <Text style={styles.sectionTitle}>Cargar nueva tarifa</Text>
       <Text style={styles.sectionHint}>
         Los valores arrancan con la tarifa actual. Modificá lo que haga falta y guardá:
-        se crea una nueva tarifa vigente desde hoy, sin borrar la anterior.
+        se crea una nueva tarifa, sin borrar la anterior.
       </Text>
 
       <Campo
@@ -136,6 +161,11 @@ export default function TarifaScreen() {
         onChangeText={setPrecioExcedente}
         keyboardType="numeric"
       />
+      <DateField
+        label="Vigente desde"
+        value={vigenteDesde}
+        onChange={setVigenteDesde}
+      />
 
       <TouchableOpacity
         style={[styles.saveBtn, saving && styles.disabled]}
@@ -144,6 +174,22 @@ export default function TarifaScreen() {
       >
         <Text style={styles.saveBtnText}>{saving ? "Guardando..." : "Guardar nueva tarifa"}</Text>
       </TouchableOpacity>
+
+      {/* Histórico */}
+      {historico.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>Historial de tarifas</Text>
+          {historico.map((t) => (
+            <View key={t.id} style={styles.histItem}>
+              <Text style={styles.histDate}>Desde {t.vigente_desde}</Text>
+              <Text style={styles.histLine}>
+                Cargo fijo {formatCOP(t.cargo_fijo)} · base {t.consumo_base_m3} m³ · excedente{" "}
+                {formatCOP(t.precio_excedente_m3)}/m³
+              </Text>
+            </View>
+          ))}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -185,7 +231,7 @@ const styles = StyleSheet.create({
   filaLabel: { fontSize: 14, color: "#666" },
   filaValor: { fontSize: 14, color: "#333", fontWeight: "600" },
   empty: { color: "#999", fontSize: 14 },
-  sectionTitle: { fontSize: 15, fontWeight: "600", color: "#333", marginBottom: 6 },
+  sectionTitle: { fontSize: 15, fontWeight: "600", color: "#333", marginBottom: 6, marginTop: 8 },
   sectionHint: { fontSize: 13, color: "#888", marginBottom: 16 },
   field: { marginBottom: 14 },
   label: { fontSize: 13, color: "#666", marginBottom: 6, fontWeight: "500" },
@@ -198,7 +244,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
   },
-  saveBtn: { backgroundColor: "#1a73e8", padding: 16, borderRadius: 8, alignItems: "center", marginTop: 8 },
+  saveBtn: { backgroundColor: "#1a73e8", padding: 16, borderRadius: 8, alignItems: "center", marginTop: 8, marginBottom: 8 },
   saveBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   disabled: { opacity: 0.6 },
+  histItem: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#f0f0f0",
+  },
+  histDate: { fontSize: 13, fontWeight: "600", color: "#555", marginBottom: 4 },
+  histLine: { fontSize: 13, color: "#777" },
 });

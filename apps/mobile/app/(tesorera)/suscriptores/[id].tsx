@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { supabase } from "../../../lib/supabase";
+import { toast, mensajeError, emailValido } from "../../../lib/ui";
 import type { Suscriptor } from "@acueducto/types";
 
 export default function SuscriptorFormScreen() {
@@ -58,6 +59,10 @@ export default function SuscriptorFormScreen() {
       Alert.alert("Faltan datos", "Nombre, apellido y dirección son obligatorios.");
       return;
     }
+    if (email.trim() && !emailValido(email.trim())) {
+      Alert.alert("Email inválido", "Revisá el formato del email (ej. nombre@dominio.com).");
+      return;
+    }
     setSaving(true);
     // organizacion_id lo completa el trigger set_organizacion_id (no se manda).
     const payload = {
@@ -75,9 +80,10 @@ export default function SuscriptorFormScreen() {
 
     setSaving(false);
     if (error) {
-      Alert.alert("Error", error.message);
+      Alert.alert("Error", mensajeError(error));
       return;
     }
+    toast("Guardado");
     router.back();
   }, [nombre, apellido, direccion, telefono, email, activo, esNuevo, id]);
 

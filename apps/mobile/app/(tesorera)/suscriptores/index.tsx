@@ -16,6 +16,7 @@ import type { Suscriptor } from "@acueducto/types";
 export default function SuscriptoresListScreen() {
   const [suscriptores, setSuscriptores] = useState<Suscriptor[]>([]);
   const [search, setSearch] = useState("");
+  const [mostrarInactivos, setMostrarInactivos] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -41,15 +42,19 @@ export default function SuscriptoresListScreen() {
     load().finally(() => setRefreshing(false));
   }, [load]);
 
+  // Por defecto solo activos; el toggle suma los inactivos.
+  const base = mostrarInactivos ? suscriptores : suscriptores.filter((s) => s.activo);
   const q = search.trim().toLowerCase();
   const filtered = q
-    ? suscriptores.filter(
+    ? base.filter(
         (s) =>
           s.nombre.toLowerCase().includes(q) ||
           s.apellido.toLowerCase().includes(q) ||
           (s.direccion ?? "").toLowerCase().includes(q)
       )
-    : suscriptores;
+    : base;
+
+  const inactivosCount = suscriptores.filter((s) => !s.activo).length;
 
   function renderItem({ item }: { item: Suscriptor }) {
     return (
@@ -90,6 +95,19 @@ export default function SuscriptoresListScreen() {
         </TouchableOpacity>
       </View>
 
+      {inactivosCount > 0 && (
+        <TouchableOpacity
+          style={styles.filterToggle}
+          onPress={() => setMostrarInactivos((v) => !v)}
+        >
+          <Text style={styles.filterText}>
+            {mostrarInactivos
+              ? "✓ Mostrando inactivos"
+              : `Ver inactivos (${inactivosCount})`}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {loading ? (
         <ActivityIndicator style={{ marginTop: 32 }} color="#1a73e8" />
       ) : filtered.length === 0 ? (
@@ -115,7 +133,7 @@ export default function SuscriptoresListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
-  header: { flexDirection: "row", gap: 10, padding: 16, alignItems: "center" },
+  header: { flexDirection: "row", gap: 10, padding: 16, paddingBottom: 8, alignItems: "center" },
   search: {
     flex: 1,
     backgroundColor: "#fff",
@@ -128,6 +146,8 @@ const styles = StyleSheet.create({
   },
   newBtn: { backgroundColor: "#1a73e8", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12 },
   newBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  filterToggle: { paddingHorizontal: 16, paddingBottom: 8, alignSelf: "flex-start" },
+  filterText: { fontSize: 13, color: "#1a73e8", fontWeight: "500" },
   list: { paddingHorizontal: 16, paddingBottom: 16 },
   card: {
     backgroundColor: "#fff",
