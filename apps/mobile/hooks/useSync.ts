@@ -22,10 +22,14 @@ export async function syncNow() {
     if (!error) markLecturaAsSynced(lectura.id);
   }
 
+  // Se traen TODOS los medidores de la org (no solo los activos). Así, si un medidor
+  // se desactiva en el server, llega con activo=false y se actualiza en el SQLite local
+  // (getMedidores ya filtra activo=1, así que deja de mostrarse). Si solo trajéramos los
+  // activos, los desactivados quedarían "fantasma" en el dispositivo: el INSERT OR REPLACE
+  // nunca los tocaría y seguirían apareciendo con su activo=1 viejo.
   const { data: medidoresData } = await supabase
     .from("medidores")
-    .select("*, suscriptor:suscriptores(nombre, apellido, direccion)")
-    .eq("activo", true);
+    .select("*, suscriptor:suscriptores(nombre, apellido, direccion)");
   if (medidoresData) saveMedidoresLocally(medidoresData);
 
   const { data: lecturasData } = await supabase
