@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Text, TouchableOpacity, Alert } from "react-native";
 import { supabase } from "../../lib/supabase";
 import { getMyRole } from "../../lib/auth";
+import { setBiometricEnabled } from "../../lib/biometrics";
 
 // Botón de cerrar sesión (en el header de Resumen).
 function BotonSalir() {
@@ -13,6 +14,8 @@ function BotonSalir() {
         text: "Salir",
         style: "destructive",
         onPress: async () => {
+          // Limpiar el gate de huella para que no quede apuntando a una sesión cerrada.
+          await setBiometricEnabled(false);
           await supabase.auth.signOut();
           router.replace("/");
         },

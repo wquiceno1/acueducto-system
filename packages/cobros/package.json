@@ -6,9 +6,15 @@
   "types": "./src/index.ts",
   "scripts": {
     "lint": "eslint . --max-warnings 0",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@acueducto/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "vitest": "^4.1.9"
   }
 }

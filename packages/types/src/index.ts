@@ -59,6 +59,25 @@ export interface Pago {
   created_at: string;
 }
 
+// Tipo de comprobante emitido.
+export type TipoComprobante = "factura" | "pago";
+
+// Comprobante: emisión de un documento (factura del mes o comprobante de pago) con folio
+// consecutivo por organización. No guarda el PDF; se regenera desde los datos.
+//   tipo='factura' -> referencia_id apunta a un Cargo
+//   tipo='pago'    -> referencia_id apunta a un Pago
+export interface Comprobante {
+  id: string;
+  organizacion_id: string;
+  tipo: TipoComprobante;
+  folio: number;
+  referencia_id: string;
+  suscriptor_id: string;
+  total: number;
+  emitido_por?: string;
+  emitido_at: string;
+}
+
 // Suscriptor (vecino con medidor)
 export interface Suscriptor {
   id: string;

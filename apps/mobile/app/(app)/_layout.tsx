@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { Text, TouchableOpacity, Alert } from "react-native";
 import { supabase } from "../../lib/supabase";
 import { useSync } from "../../hooks/useSync";
+import { setBiometricEnabled } from "../../lib/biometrics";
 
 // Botón de cerrar sesión (header de la pantalla del operario).
 function BotonSalir() {
@@ -14,6 +15,8 @@ function BotonSalir() {
         text: "Salir",
         style: "destructive",
         onPress: async () => {
+          // Limpiar el gate de huella para que no quede apuntando a una sesión cerrada.
+          await setBiometricEnabled(false);
           await supabase.auth.signOut();
           router.replace("/");
         },

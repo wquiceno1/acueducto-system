@@ -44,3 +44,6 @@ export function saldoSuscriptor(
 export function estaAlDia(saldo: number): boolean {
   return saldo <= 0;
 }
+
+// Ensamblado de datos de comprobantes (factura del mes / comprobante de pago).
+export * from "./comprobante";

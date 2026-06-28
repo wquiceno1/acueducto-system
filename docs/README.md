@@ -27,7 +27,13 @@ cambio grande — no solo qué se hizo, sino por qué se hizo así.
 
 6. **[Persistencia de sesión + biometría](persistencia-sesion-biometria.md)** — Que la
    sesión sobreviva al cierre de la app (Fase 1) y login con huella en Android (Fase 2).
-   _Estado: planificado._
+   _Estado: Fase 1 implementada y verificada en dispositivo (operario + tesorera);
+   Fase 2 (huella) implementada y verificada en dispositivo._
+
+7. **[Comprobantes en PDF](comprobantes.md)** — Emisión de factura del mes y comprobante de
+   pago en PDF (compartible por WhatsApp desde mobile), con folio consecutivo por organización.
+   _Estado: Fases 0-3 implementadas (datos+folio aplicado, ensamblado testeado, PDF, UI en
+   cobranza con botones Compartir factura/comprobante). Pendiente Fase 4: verificar en dispositivo._
 
 ---
 

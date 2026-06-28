@@ -58,7 +58,10 @@ export function saveMedidoresLocally(medidores: any[]) {
   });
 }
 
-export function saveLecturaLocally(lectura: Omit<Lectura, "consumo">) {
+// El mobile es org-agnóstico: `organizacion_id` lo asigna el trigger `set_org_lecturas`
+// del servidor (get_my_org()) al sincronizar. La tabla local no guarda la org, así que
+// el tipo de entrada la omite junto con `consumo` (que se calcula acá).
+export function saveLecturaLocally(lectura: Omit<Lectura, "consumo" | "organizacion_id">) {
   const consumo = lectura.lectura_actual - lectura.lectura_anterior;
   db.runSync(
     `INSERT INTO lecturas

@@ -14,7 +14,11 @@ import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import { supabase } from "../../../lib/supabase";
 import { DateField } from "../../../components/DateField";
 import { toast } from "../../../lib/ui";
-import { saldoSuscriptor, estaAlDia, calcularCobro, formatCOP } from "@acueducto/cobros";
+import {
+  saldoSuscriptor, estaAlDia, calcularCobro, formatCOP,
+  construirFactura, construirComprobantePago,
+} from "@acueducto/cobros";
+import { compartirFacturaPDF, compartirComprobantePagoPDF } from "../../../lib/comprobante";
 import type {
   Suscriptor, Cargo, Pago, MetodoPago, Medidor, Lectura, Tarifa,
 } from "@acueducto/types";
@@ -38,14 +42,21 @@ function periodoLabel(p: string) {
 function hoyISO() {
   return new Date().toISOString().split("T")[0];
 }
+// Último día del mes de un período "AAAA-MM-01" -> "AAAA-MM-31".
+function finDeMes(periodo: string) {
+  const [y, m] = periodo.split("-").map(Number);
+  return new Date(y ?? 0, m ?? 0, 0).toISOString().split("T")[0];
+}
 
 export default function EstadoCuentaScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [suscriptor, setSuscriptor] = useState<Suscriptor | null>(null);
+  const [orgNombre, setOrgNombre] = useState("");
   const [cargos, setCargos] = useState<Cargo[]>([]);
   const [pagos, setPagos] = useState<Pago[]>([]);
   const [loading, setLoading] = useState(true);
+  const [emitiendo, setEmitiendo] = useState(false);
 
   // Consumo del mes (detalle por medidor, movido desde Resumen).
   const now = new Date();
@@ -64,11 +75,16 @@ export default function EstadoCuentaScreen() {
 
   const load = useCallback(async () => {
     const [{ data: sus }, { data: cs }, { data: ps }] = await Promise.all([
-      supabase.from("suscriptores").select("*").eq("id", id).single(),
+      supabase
+        .from("suscriptores")
+        .select("*, organizacion:organizaciones(nombre)")
+        .eq("id", id)
+        .single(),
       supabase.from("cargos").select("*").eq("suscriptor_id", id).order("periodo", { ascending: false }),
       supabase.from("pagos").select("*").eq("suscriptor_id", id).order("fecha_pago", { ascending: false }),
     ]);
     setSuscriptor((sus as Suscriptor) ?? null);
+    setOrgNombre((sus as { organizacion?: { nombre?: string } })?.organizacion?.nombre ?? "");
     setCargos((cs ?? []) as Cargo[]);
     setPagos((ps ?? []) as Pago[]);
   }, [id]);
@@ -91,7 +107,14 @@ export default function EstadoCuentaScreen() {
         .eq("medidor.suscriptor_id", id)
         .gte("fecha_lectura", desde)
         .lte("fecha_lectura", hasta),
-      supabase.from("tarifas").select("*").order("vigente_desde", { ascending: false }).limit(1).maybeSingle(),
+      // Tarifa que REGÍA en el mes consultado (no la última vigente), igual que el cargo.
+      supabase
+        .from("tarifas")
+        .select("*")
+        .lte("vigente_desde", hasta)
+        .order("vigente_desde", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
     setConsumoLecturas((lecs ?? []) as LecturaConMedidor[]);
     setTarifa((tar as Tarifa | null) ?? null);
@@ -153,6 +176,96 @@ export default function EstadoCuentaScreen() {
     toast("Pago registrado");
     setLoading(true);
     load().finally(() => setLoading(false));
+  }
+
+  const nombreSuscriptor = suscriptor
+    ? `${suscriptor.apellido}, ${suscriptor.nombre}`
+    : "";
+
+  // Factura del mes de un cargo: folio (RPC) -> datos del período (lecturas por medidor +
+  // tarifa del PERÍODO) -> ensamblado (Fase 1) -> PDF (Fase 2).
+  async function compartirFactura(cargo: Cargo) {
+    if (emitiendo) return;
+    setEmitiendo(true);
+    try {
+      const { data: comp, error } = await supabase.rpc("emitir_comprobante", {
+        p_tipo: "factura",
+        p_referencia_id: cargo.id,
+      });
+      if (error || !comp) throw new Error(error?.message ?? "No se pudo emitir el comprobante");
+
+      const fin = finDeMes(cargo.periodo);
+      const [{ data: lecs }, { data: tar }] = await Promise.all([
+        supabase
+          .from("lecturas")
+          .select("consumo, medidor:medidores!inner(numero_serie, suscriptor_id)")
+          .eq("medidor.suscriptor_id", id)
+          .gte("fecha_lectura", cargo.periodo)
+          .lte("fecha_lectura", fin),
+        supabase
+          .from("tarifas")
+          .select("*")
+          .lte("vigente_desde", fin)
+          .order("vigente_desde", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (!tar) throw new Error("No hay una tarifa para el período del cargo.");
+
+      // Supabase infiere el join `medidor` como array; en runtime es un objeto (to-one).
+      const filas = (lecs ?? []) as unknown as {
+        consumo: number;
+        medidor: { numero_serie: string };
+      }[];
+
+      const datos = construirFactura({
+        folio: comp.folio,
+        organizacion: orgNombre,
+        suscriptor: nombreSuscriptor,
+        periodo: cargo.periodo,
+        lineas: filas.map((l) => ({
+          numeroSerie: l.medidor.numero_serie,
+          consumo: l.consumo,
+        })),
+        tarifa: tar as Tarifa,
+        totalCongelado: cargo.monto,
+        saldoCuenta: saldo,
+        emitidoEn: hoyISO(),
+      });
+      await compartirFacturaPDF(datos);
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "No se pudo generar la factura.");
+    } finally {
+      setEmitiendo(false);
+    }
+  }
+
+  // Comprobante de un pago: folio (RPC) -> ensamblado con saldo restante -> PDF.
+  async function compartirComprobantePago(pago: Pago) {
+    if (emitiendo) return;
+    setEmitiendo(true);
+    try {
+      const { data: comp, error } = await supabase.rpc("emitir_comprobante", {
+        p_tipo: "pago",
+        p_referencia_id: pago.id,
+      });
+      if (error || !comp) throw new Error(error?.message ?? "No se pudo emitir el comprobante");
+
+      const datos = construirComprobantePago({
+        folio: comp.folio,
+        organizacion: orgNombre,
+        suscriptor: nombreSuscriptor,
+        pago: { monto: pago.monto, fecha_pago: pago.fecha_pago, metodo: pago.metodo },
+        cargos,
+        pagos,
+        emitidoEn: hoyISO(),
+      });
+      await compartirComprobantePagoPDF(datos);
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "No se pudo generar el comprobante.");
+    } finally {
+      setEmitiendo(false);
+    }
   }
 
   if (loading) {
@@ -225,13 +338,18 @@ export default function EstadoCuentaScreen() {
       ) : (
         cargos.map((c) => (
           <View key={c.id} style={styles.row}>
-            <View>
+            <View style={styles.rowInfo}>
               <Text style={styles.rowMain}>{periodoLabel(c.periodo)}</Text>
               {c.consumo_total != null && (
                 <Text style={styles.rowSub}>{c.consumo_total} m³</Text>
               )}
             </View>
-            <Text style={styles.rowCargo}>{formatCOP(c.monto)}</Text>
+            <View style={styles.rowRight}>
+              <Text style={styles.rowCargo}>{formatCOP(c.monto)}</Text>
+              <TouchableOpacity onPress={() => compartirFactura(c)} disabled={emitiendo}>
+                <Text style={styles.compartirLink}>Compartir factura</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ))
       )}
@@ -243,14 +361,19 @@ export default function EstadoCuentaScreen() {
       ) : (
         pagos.map((p) => (
           <View key={p.id} style={styles.row}>
-            <View>
+            <View style={styles.rowInfo}>
               <Text style={styles.rowMain}>{p.fecha_pago}</Text>
               <Text style={styles.rowSub}>
                 {p.metodo}
                 {p.notas ? ` · ${p.notas}` : ""}
               </Text>
             </View>
-            <Text style={styles.rowPago}>− {formatCOP(p.monto)}</Text>
+            <View style={styles.rowRight}>
+              <Text style={styles.rowPago}>− {formatCOP(p.monto)}</Text>
+              <TouchableOpacity onPress={() => compartirComprobantePago(p)} disabled={emitiendo}>
+                <Text style={styles.compartirLink}>Compartir comprobante</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ))
       )}
@@ -310,6 +433,14 @@ export default function EstadoCuentaScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Overlay mientras se genera y comparte el PDF */}
+      <Modal visible={emitiendo} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.overlayText}>Generando PDF…</Text>
         </View>
       </Modal>
     </ScrollView>
@@ -385,10 +516,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  rowInfo: { flex: 1 },
+  rowRight: { alignItems: "flex-end" },
   rowMain: { fontSize: 14, color: "#333", fontWeight: "500" },
   rowSub: { fontSize: 12, color: "#999", marginTop: 2 },
   rowCargo: { fontSize: 14, fontWeight: "700", color: "#dc2626" },
   rowPago: { fontSize: 14, fontWeight: "700", color: "#16a34a" },
+  compartirLink: { fontSize: 12, color: "#1a73e8", fontWeight: "600", marginTop: 4 },
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  overlayText: { color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 12 },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   modalCard: { backgroundColor: "#fff", borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 32 },
   modalTitle: { fontSize: 17, fontWeight: "700", color: "#333", marginBottom: 16 },

@@ -31,17 +31,26 @@ Que al reabrir la app, si hay una sesión válida guardada, el usuario entre dir
 #### 1. Dependencia de almacenamiento
 `npx expo install @react-native-async-storage/async-storage` (compatible con Expo Go SDK 54).
 
-#### 2. Refactor del cliente compartido (sin romper el web)
+#### 2. Refactor del cliente compartido
 `packages/supabase-client/src/index.ts`: `createSupabaseClient` debe aceptar opciones de
-auth/storage opcionales. El web sigue llamándolo sin storage (usa su default de browser);
-mobile le pasa el adapter de AsyncStorage.
+auth/storage opcionales. Mobile le pasa el adapter de AsyncStorage.
 ```ts
-export function createSupabaseClient(url, anonKey, options?) {
+import { createClient, SupabaseClient, SupabaseClientOptions } from "@supabase/supabase-js";
+
+export function createSupabaseClient(
+  url: string,
+  anonKey: string,
+  options?: SupabaseClientOptions<"public">
+): SupabaseClient {
   return createClient(url, anonKey, options);
 }
 ```
-- ⚠️ Verificar que `apps/web/lib/supabase.ts` (que llama `createSupabaseClient(url, key)`)
-  siga funcionando igual (las opciones son opcionales).
+- ✅ **Verificado (2026-06-17)**: el **único** consumidor de `createSupabaseClient` es
+  `apps/mobile/lib/supabase.ts`. El web NO usa el cliente compartido para esto: crea su
+  cliente con `createClient` directo de `@supabase/supabase-js` en `apps/web/lib/supabase.ts`.
+  Por lo tanto este refactor **no puede romper el web** — el riesgo está acotado a mobile.
+- Conservar el tipo de retorno `SupabaseClient` y tipar el tercer parámetro con
+  `SupabaseClientOptions` (no tirar los tipos al agregar el parámetro).
 
 #### 3. Configurar persistencia en mobile
 `apps/mobile/lib/supabase.ts`: pasar el storage y las flags de auth:
@@ -56,18 +65,32 @@ auth: {
 
 #### 4. Auto-login al arrancar
 `apps/mobile/app/index.tsx` (login): al montar, hacer `getSession()`. Si hay sesión válida,
-leer el rol y `router.replace` al destino (operario/tesorera) sin mostrar el formulario.
-Si no hay sesión, mostrar el login como hoy. (Estado intermedio "verificando" para no
-parpadear el formulario.)
+leer el rol (`getMyRole`) y `router.replace` al destino (`routeForRole`) sin mostrar el
+formulario. Si no hay sesión, mostrar el login como hoy.
+- **Reusar lo existente**: `getMyRole` y `routeForRole` ya están en `apps/mobile/lib/auth.ts`
+  y los usa el login actual. El auto-login solo necesita rutear; NO duplicar lógica de guard.
+- **Guards ya existen**: `app/(app)/_layout.tsx` y `app/(tesorera)/_layout.tsx` ya defienden
+  cada zona con `getSession()` + `onAuthStateChange` (`SIGNED_OUT → router.replace("/")`).
+  El auto-login se apoya en esa infraestructura, no la reemplaza.
+- **Estado "verificando" (spec)**: agregar un loading state real en `index.tsx` mientras corre
+  `getSession()` — renderizar un spinner/pantalla neutra, NO el formulario, hasta resolver.
+  Así no parpadea el form cuando sí hay sesión.
 
 #### 5. (Recomendado) Auto-refresh del token según AppState
 Patrón oficial de Supabase RN: `supabase.auth.startAutoRefresh()` cuando la app está
 activa y `stopAutoRefresh()` en background (vía `AppState`). Evita tokens vencidos en
 sesiones largas.
+- **Dónde (spec)**: el patrón oficial registra el listener de `AppState` a **nivel de módulo**
+  en `apps/mobile/lib/supabase.ts` (junto a la creación del cliente), no dentro de un componente.
 
 #### 6. Verificación
 Login → matar el proceso de la app → reabrir → entra directo, sin pedir credenciales.
-Logout (botón Salir) → al reabrir, vuelve a pedir login (la sesión se limpió).
+Logout (botón Salir) → al reabrir, vuelve a pedir login.
+- **El logout ya funciona, solo verificarlo**: los botones Salir de `app/(app)/_layout.tsx` y
+  `app/(tesorera)/_layout.tsx` ya hacen `signOut()` + `router.replace("/")`. Con
+  `persistSession: true`, `signOut()` **limpia el AsyncStorage automáticamente** (lo hace el
+  storage adapter) — no hay que implementar limpieza manual en Fase 1, solo confirmar que
+  al reabrir tras logout vuelve a pedir login.
 
 ### Decisión abierta (Fase 1)
 **¿AsyncStorage o SecureStore para guardar la sesión?**
@@ -130,10 +153,13 @@ sesión persistida), para que no quede el gate apuntando a una sesión cerrada.
 - Multi-cuenta en un mismo dispositivo (cada rol usa su propio celular).
 
 ## Riesgos / cosas a cuidar
-- **No romper el web** al refactorizar `@acueducto/supabase-client` (las opciones deben
-  ser opcionales).
+- **Opciones opcionales en el cliente compartido**: el tercer parámetro debe ser opcional para
+  no obligar a cambiar a ningún consumidor. (Nota: verificado que el web NO consume
+  `createSupabaseClient` — usa `createClient` directo —, así que el refactor no afecta al web;
+  el único consumidor es mobile.)
 - **Seguridad**: nunca guardar la contraseña; persistir la sesión/refresh token, no el password.
-- **Limpieza en logout**: dejar el storage consistente (sesión + flag biometría).
+- **Limpieza en logout**: en Fase 1 la hace `signOut()` solo (limpia AsyncStorage). En Fase 2
+  hay que sumar la limpieza del flag `biometria_on`.
 - Probar en un **dispositivo Android real con huella** (el emulador puede simular huella,
   pero conviene validar en hardware).
 
